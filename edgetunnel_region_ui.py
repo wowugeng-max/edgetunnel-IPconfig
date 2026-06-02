@@ -308,6 +308,13 @@ HTML = r'''<!doctype html>
           <label style="margin-top:0">生成结果 / 日志</label>
           <pre id="output">尚未生成。</pre>
           <div class="mini" id="meta"></div>
+          <div class="pending-area">
+            <label>保存记录名称</label>
+            <input id="recordName" placeholder="自动格式：国家-出口/入口-时间" />
+            <div class="actions">
+              <button class="ghost" id="saveRecordBtn">保存当前结果</button>
+            </div>
+          </div>
         </div>
 
         <div class="section write-section">
@@ -328,14 +335,9 @@ HTML = r'''<!doctype html>
 
     <div class="section records-section" id="scanRecordsSection">
       <h2>扫描记录</h2>
-      <div class="section-desc">把入口或出口扫描结果保存成快照；以后可以加入预选，再单独写入 ADD.txt。</div>
+      <div class="section-desc">管理已保存的入口/出口快照；可以加入预选，再单独写入 ADD.txt。</div>
       <div class="record-grid">
         <div>
-          <label>保存记录名称</label>
-          <input id="recordName" placeholder="自动格式：国家-出口/入口-时间" />
-          <div class="actions">
-            <button class="ghost" id="saveRecordBtn">保存当前结果</button>
-          </div>
           <label>已保存记录</label>
           <select id="recordsList"></select>
           <div class="actions">
@@ -510,14 +512,16 @@ function renderRecords(records) {
   const list = $('recordsList');
   const selected = list.value;
   list.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
   if (!savedRecords.length) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = '暂无保存记录';
-    list.appendChild(option);
+    placeholder.textContent = '暂无保存记录';
+    list.appendChild(placeholder);
     $('recordEditor').value = '';
     return;
   }
+  placeholder.textContent = '请选择保存记录';
+  list.appendChild(placeholder);
   savedRecords.forEach(item => {
     const option = document.createElement('option');
     option.value = item.name;
@@ -526,6 +530,8 @@ function renderRecords(records) {
   });
   if (selected && savedRecords.some(item => item.name === selected)) {
     list.value = selected;
+  } else {
+    list.value = '';
   }
   showSelectedRecord();
 }
@@ -567,11 +573,9 @@ async function loadRecords(silent=false) {
 function showSelectedRecord() {
   const record = selectedRecord();
   if (!record) {
-    $('recordName').value = '';
     $('recordEditor').value = '';
     return;
   }
-  $('recordName').value = record.name;
   $('recordEditor').value = record.add_txt || '';
 }
 async function saveCurrentRecord() {
@@ -585,8 +589,6 @@ async function saveCurrentRecord() {
       add_txt: latestAddTxt,
     });
     renderRecords(data.records || []);
-    $('recordsList').value = data.record.name;
-    showSelectedRecord();
     setStatus(`已保存记录：${data.record.name}`, 'ok');
   } catch (e) {
     setStatus(e.message, 'err');
@@ -594,25 +596,19 @@ async function saveCurrentRecord() {
 }
 async function updateSelectedRecord() {
   const record = selectedRecord();
-  const name = $('recordName').value.trim();
   const addTxt = $('recordEditor').value.trim();
-  if (!record && !name) return setStatus('请选择记录或填写记录名称。', 'err');
+  if (!record) return setStatus('请选择要编辑的保存记录。', 'err');
   try {
-    let data = await callApi('/api/records/save', {
-      name: name || record.name,
-      mode: record ? record.mode : recordModeForApi(),
-      countries: record ? record.countries : payload().country,
+    const data = await callApi('/api/records/save', {
+      name: record.name,
+      mode: record.mode,
+      countries: record.countries,
       add_txt: addTxt,
     });
-    if (record && name && name !== record.name) {
-      data = await callApi('/api/records/delete', {name: record.name});
-      await loadRecords(true);
-    } else {
-      renderRecords(data.records || []);
-    }
-    $('recordsList').value = name || (record && record.name) || '';
+    renderRecords(data.records || []);
+    $('recordsList').value = record.name;
     showSelectedRecord();
-    setStatus(`已更新记录：${name || (record && record.name)}`, 'ok');
+    setStatus(`已更新记录：${record.name}`, 'ok');
   } catch (e) {
     setStatus(e.message, 'err');
   }

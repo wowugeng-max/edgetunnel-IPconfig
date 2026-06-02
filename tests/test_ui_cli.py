@@ -75,6 +75,12 @@ class UiCliTests(unittest.TestCase):
         self.assertIn("应用预选到 ADD.txt", ui.HTML)
         self.assertNotIn("加载到当前结果", ui.HTML)
 
+    def test_ui_save_current_result_is_under_output_and_not_linked_to_saved_selection(self):
+        self.assertLess(ui.HTML.index("生成结果 / 日志"), ui.HTML.index("保存记录名称"))
+        self.assertLess(ui.HTML.index("保存记录名称"), ui.HTML.index("写入 / 恢复"))
+        self.assertNotIn("$('recordName').value = record.name", ui.HTML)
+        self.assertNotIn("name || record.name", ui.HTML)
+
     def test_ui_exposes_bounded_proxy_validation_controls(self):
         self.assertIn("proxyExclude", ui.HTML)
         self.assertIn("proxyTimeout", ui.HTML)
