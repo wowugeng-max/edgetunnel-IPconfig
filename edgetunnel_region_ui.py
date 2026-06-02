@@ -84,6 +84,9 @@ HTML = r'''<!doctype html>
     .control-stack .section, .results-stack .section { margin-bottom: 0; }
     .record-grid { display: grid; grid-template-columns: minmax(260px, .78fr) minmax(320px, 1.22fr); gap: 18px; align-items: start; }
     .record-editor textarea { min-height: 260px; resize: vertical; }
+    .pending-area { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .pending-area select { min-height: 112px; }
+    .pending-area textarea { min-height: 120px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
     .write-section .actions { margin-top: 14px; }
     @media (max-width: 900px) {
       .workspace-grid, .record-grid { grid-template-columns: 1fr; }
@@ -325,21 +328,34 @@ HTML = r'''<!doctype html>
 
     <div class="section records-section" id="scanRecordsSection">
       <h2>扫描记录</h2>
-      <div class="section-desc">把入口或出口扫描结果保存成快照；以后可以直接加载到当前结果，再写入 ADD.txt。</div>
+      <div class="section-desc">把入口或出口扫描结果保存成快照；以后可以加入预选，再单独写入 ADD.txt。</div>
       <div class="record-grid">
         <div>
           <label>保存记录名称</label>
-          <input id="recordName" placeholder="例如：JP 入口 NRT 2026-06-02 / 印尼出口可用 1" />
+          <input id="recordName" placeholder="自动格式：国家-出口/入口-时间" />
           <div class="actions">
             <button class="ghost" id="saveRecordBtn">保存当前结果</button>
-            <button class="ghost" id="loadRecordsBtn">刷新记录</button>
           </div>
           <label>已保存记录</label>
           <select id="recordsList"></select>
           <div class="actions">
-            <button class="ghost" id="loadRecordBtn">加载到当前结果</button>
+            <button class="ghost" id="refreshRecordsBtn">刷新记录列表</button>
+            <button class="ghost" id="loadRecordBtn">添加到预选</button>
             <button class="ghost" id="updateRecordBtn">保存编辑</button>
             <button class="ghost" id="deleteRecordBtn">删除记录</button>
+          </div>
+          <div class="pending-area">
+            <label>预选内容</label>
+            <select id="pendingRecordsList" size="5"></select>
+            <div class="actions">
+              <button class="ghost" id="removePendingRecordBtn">删除选中结果</button>
+              <button class="ghost" id="clearPendingRecordsBtn">清空预选</button>
+            </div>
+            <label>预选 ADD.txt 预览</label>
+            <textarea id="pendingAddPreview" readonly placeholder="添加保存记录到预选后，这里会显示将要写入 ADD.txt 的合并内容。"></textarea>
+            <div class="actions">
+              <button id="applyPendingBtn">应用预选到 ADD.txt</button>
+            </div>
           </div>
         </div>
         <div class="record-editor">
@@ -360,6 +376,7 @@ let latestAddTxt = '';
 let latestMode = '';
 let lastAutoEntryColos = '';
 let savedRecords = [];
+let pendingRecords = [];
 
 function setStatus(text, type='') {
   statusEl.className = 'status' + (type ? ' ' + type : '');
@@ -388,6 +405,19 @@ function setLatest(addTxt, mode) {
   latestAddTxt = addTxt || '';
   latestMode = latestAddTxt ? mode : '';
 }
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+function timestampForRecordName(date=new Date()) {
+  return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}-${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`;
+}
+function suggestRecordName(countries, mode) {
+  const countryText = Array.isArray(countries) ? countries.filter(Boolean).join('-') : String(countries || '').trim();
+  return `${countryText || '未指定'}-${mode}-${timestampForRecordName()}`;
+}
+function setSuggestedRecordName(countries, mode) {
+  $('recordName').value = suggestRecordName(countries, mode);
+}
 function recordModeForApi() {
   if (latestMode.includes('出口')) return 'exit';
   if (latestMode.includes('入口')) return 'entry';
@@ -403,6 +433,10 @@ function formatTime(ts) {
 function selectedRecord() {
   const name = $('recordsList').value;
   return savedRecords.find(item => item.name === name) || null;
+}
+function selectedPendingRecord() {
+  const key = $('pendingRecordsList').value;
+  return pendingRecords.find(item => item.key === key) || null;
 }
 function formatMap(obj) {
   const entries = Object.entries(obj || {});
@@ -495,6 +529,32 @@ function renderRecords(records) {
   }
   showSelectedRecord();
 }
+function combinedPendingAddTxt() {
+  return pendingRecords.map(item => item.add_txt.trim()).filter(Boolean).join('\n') + (pendingRecords.length ? '\n' : '');
+}
+function renderPendingRecords() {
+  const list = $('pendingRecordsList');
+  const selected = list.value;
+  list.innerHTML = '';
+  if (!pendingRecords.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = '暂无预选内容';
+    list.appendChild(option);
+    $('pendingAddPreview').value = '';
+    return;
+  }
+  pendingRecords.forEach(item => {
+    const option = document.createElement('option');
+    option.value = item.key;
+    option.textContent = `${item.name} · ${recordModeLabel(item.mode)} · ${item.line_count || 0} 行`;
+    list.appendChild(option);
+  });
+  if (selected && pendingRecords.some(item => item.key === selected)) {
+    list.value = selected;
+  }
+  $('pendingAddPreview').value = combinedPendingAddTxt();
+}
 async function loadRecords(silent=false) {
   try {
     const data = await callApi('/api/records', {});
@@ -557,13 +617,44 @@ async function updateSelectedRecord() {
     setStatus(e.message, 'err');
   }
 }
-function loadSelectedRecordToCurrent() {
+function addSelectedRecordToPending() {
   const record = selectedRecord();
-  if (!record) return setStatus('请选择要加载的记录。', 'err');
-  setLatest(record.add_txt, recordModeLabel(record.mode));
-  outputEl.textContent = latestAddTxt;
-  metaEl.textContent = `已加载记录：${record.name} ｜ 模式：${recordModeLabel(record.mode)} ｜ 国家：${(record.countries || []).join(', ') || '未标注'} ｜ 行数：${record.line_count}`;
-  setStatus('已加载保存记录到当前结果。可以直接「应用当前结果到 ADD.txt」。', 'ok');
+  if (!record) return setStatus('请选择要添加到预选的记录。', 'err');
+  const key = `${record.name}::${record.updated_at || Date.now()}`;
+  if (!pendingRecords.some(item => item.key === key)) {
+    pendingRecords.push({...record, key});
+  }
+  renderPendingRecords();
+  setStatus(`已加入预选内容：${record.name}。点「应用预选到 ADD.txt」会写入 ${pendingRecords.length} 条保存记录的合并结果。`, 'ok');
+}
+function removePendingRecord() {
+  const selected = selectedPendingRecord();
+  if (!selected) return setStatus('请选择要从预选内容删除的结果。', 'err');
+  pendingRecords = pendingRecords.filter(item => item.key !== selected.key);
+  renderPendingRecords();
+  setStatus(`已从预选内容删除：${selected.name}`, 'ok');
+}
+function clearPendingRecords() {
+  pendingRecords = [];
+  renderPendingRecords();
+  setStatus('已清空预选内容。', 'ok');
+}
+async function applyPendingToAdd() {
+  const p = payload();
+  const addTxt = combinedPendingAddTxt();
+  if (!p.base_url) return setStatus('请填写 edgetunnel 地址。', 'err');
+  if (!p.admin_password) return setStatus('应用预选到 ADD.txt 需要填写管理员密码。', 'err');
+  if (!addTxt.trim()) return setStatus('没有可写入的预选内容。请先把保存记录添加到预选。', 'err');
+  $('applyPendingBtn').disabled = true;
+  setStatus(`正在写入预选内容到 ADD.txt…\n预选记录：${pendingRecords.length} 条`);
+  try {
+    await callApi('/api/write_add', {base_url: p.base_url, admin_password: p.admin_password, add_txt: addTxt});
+    setStatus(`已成功把预选内容写入 edgetunnel /admin/ADD.txt。\n预选记录：${pendingRecords.length} 条`, 'ok');
+  } catch (e) {
+    setStatus(e.message, 'err');
+  } finally {
+    $('applyPendingBtn').disabled = false;
+  }
 }
 async function deleteSelectedRecord() {
   const record = selectedRecord();
@@ -587,6 +678,7 @@ async function run(dryRun) {
   try {
     const data = await callApi('/api/apply', {...p, dry_run: dryRun});
     setLatest(data.add_txt, '入口 IP');
+    setSuggestedRecordName(data.country_code, '入口');
     outputEl.textContent = latestAddTxt || '(空)';
     metaEl.textContent = `国家代码：${data.country_code} ｜ 命中：${data.count} 条 ｜ 可用地区：${data.available_regions.join(', ') || '无'}`;
     const fallbackNote = data.fallback_url ? `\n已自动使用兜底源：${data.fallback_url}` : '';
@@ -605,6 +697,7 @@ async function speedtest() {
   try {
     const data = await callApi('/api/speedtest', p);
     setLatest(data.add_txt, '入口本地测速');
+    setSuggestedRecordName(data.report.target_countries.length ? data.report.target_countries : data.country_code, '入口');
     const reportText = `入口扫描报告
 目标国家：${data.report.target_countries.join(', ') || data.country_code}
 目标 Colo：${data.report.target_colos.join(', ') || '未指定'}
@@ -635,6 +728,7 @@ async function proxyExitTest() {
   try {
     const data = await callApi('/api/proxy_exit', p);
     setLatest(data.add_txt, data.multi_country ? '多国家出口代理' : '出口代理');
+    setSuggestedRecordName(data.country_codes, '出口');
     outputEl.textContent = latestAddTxt || (data.checked_text || '(没有可用代理或没有命中目标国家)');
     metaEl.textContent = `模式：${latestMode || '未生成'} ｜ 国家：${data.country_codes.join(', ')} ｜ 命中代理：${data.count} 条 ｜ 已检查：${data.checked_count} 条 ｜ 候选：${data.candidate_count} 条`;
     setStatus(data.count ? `出口代理测速完成，已轮换可用代理生成 ADD.txt。\n${data.summary_text}` : `未找到可用出口代理。可换代理源 URL 或自备 SOCKS5。`, data.count ? 'ok' : 'warn');
@@ -682,10 +776,13 @@ $('previewBtn').addEventListener('click', () => run(true));
 $('addCountryBtn').addEventListener('click', addCountry);
 $('recordsList').addEventListener('change', showSelectedRecord);
 $('saveRecordBtn').addEventListener('click', saveCurrentRecord);
-$('loadRecordsBtn').addEventListener('click', () => loadRecords(false));
-$('loadRecordBtn').addEventListener('click', loadSelectedRecordToCurrent);
+$('refreshRecordsBtn').addEventListener('click', () => loadRecords(false));
+$('loadRecordBtn').addEventListener('click', addSelectedRecordToPending);
 $('updateRecordBtn').addEventListener('click', updateSelectedRecord);
 $('deleteRecordBtn').addEventListener('click', deleteSelectedRecord);
+$('removePendingRecordBtn').addEventListener('click', removePendingRecord);
+$('clearPendingRecordsBtn').addEventListener('click', clearPendingRecords);
+$('applyPendingBtn').addEventListener('click', applyPendingToAdd);
 $('applyBtn').addEventListener('click', async () => {
   const p = payload();
   if (!p.base_url) return setStatus('请填写 edgetunnel 地址。', 'err');
@@ -732,6 +829,7 @@ $('copyBtn').addEventListener('click', async () => {
 });
 loadCountries();
 loadRecords(true);
+renderPendingRecords();
 </script>
 </body>
 </html>'''

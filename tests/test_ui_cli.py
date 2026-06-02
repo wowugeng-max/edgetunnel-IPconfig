@@ -61,6 +61,20 @@ class UiCliTests(unittest.TestCase):
         self.assertIn('class="record-grid"', ui.HTML)
         self.assertLess(ui.HTML.index("写入 / 恢复"), ui.HTML.index("扫描记录"))
 
+    def test_ui_exposes_auto_record_names_and_pending_add_selection(self):
+        self.assertIn("suggestRecordName", ui.HTML)
+        self.assertIn("国家-出口/入口-时间", ui.HTML)
+        self.assertIn("预选内容", ui.HTML)
+        self.assertIn("pendingRecordsList", ui.HTML)
+        self.assertIn("pendingAddPreview", ui.HTML)
+        self.assertIn("removePendingRecordBtn", ui.HTML)
+        self.assertIn("clearPendingRecordsBtn", ui.HTML)
+        self.assertIn("applyPendingBtn", ui.HTML)
+        self.assertIn("refreshRecordsBtn", ui.HTML)
+        self.assertIn("添加到预选", ui.HTML)
+        self.assertIn("应用预选到 ADD.txt", ui.HTML)
+        self.assertNotIn("加载到当前结果", ui.HTML)
+
     def test_ui_exposes_bounded_proxy_validation_controls(self):
         self.assertIn("proxyExclude", ui.HTML)
         self.assertIn("proxyTimeout", ui.HTML)
