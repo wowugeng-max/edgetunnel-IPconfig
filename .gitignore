@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .env
+.edgetunnel-ui.pid
+.edgetunnel-ui.log
+edgetunnel_countries.json
+edgetunnel_add_records.json
