@@ -81,6 +81,12 @@ class UiCliTests(unittest.TestCase):
         self.assertNotIn("$('recordName').value = record.name", ui.HTML)
         self.assertNotIn("name || record.name", ui.HTML)
 
+    def test_ui_buttons_have_click_feedback(self):
+        self.assertIn("button.pressed", ui.HTML)
+        self.assertIn("bindButtonFeedback", ui.HTML)
+        self.assertIn("pointerdown", ui.HTML)
+        self.assertIn("click-feedback", ui.HTML)
+
     def test_ui_exposes_bounded_proxy_validation_controls(self):
         self.assertIn("proxyExclude", ui.HTML)
         self.assertIn("proxyTimeout", ui.HTML)

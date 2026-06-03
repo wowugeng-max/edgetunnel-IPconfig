@@ -140,10 +140,18 @@ HTML = r'''<!doctype html>
       cursor: pointer;
       background: var(--green);
       font-size: 14px;
+      position: relative;
+      transform: translateY(0);
+      transition: transform .12s ease, box-shadow .12s ease, filter .12s ease, background-color .12s ease, border-color .12s ease;
+      box-shadow: 0 8px 18px rgba(0,0,0,.18);
     }
+    button:hover:not(:disabled) { filter: brightness(1.05); box-shadow: 0 10px 24px rgba(0,0,0,.24); }
+    button:active:not(:disabled), button.pressed:not(:disabled) { transform: translateY(2px) scale(.985); filter: brightness(.94); box-shadow: 0 3px 10px rgba(0,0,0,.22); }
+    button.click-feedback:not(:disabled) { box-shadow: 0 0 0 4px rgba(96,165,250,.24), 0 8px 18px rgba(0,0,0,.18); }
+    button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
     button.secondary { background: var(--blue); color: #07121f; }
     button.ghost { background: #1f2937; color: var(--text); border: 1px solid #334155; }
-    button:disabled { opacity: .55; cursor: not-allowed; }
+    button:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
     .hint { color: var(--muted); font-size: 12px; line-height: 1.55; margin-top: 8px; }
     .status {
       padding: 12px 14px;
@@ -467,6 +475,24 @@ function bindCountryChip(chip) {
     }
   });
 }
+function bindButtonFeedback(root=document) {
+  root.querySelectorAll('button').forEach(button => {
+    if (button.dataset.feedbackBound) return;
+    button.dataset.feedbackBound = '1';
+    button.addEventListener('pointerdown', () => {
+      if (button.disabled) return;
+      button.classList.add('pressed', 'click-feedback');
+    });
+    ['pointerup', 'pointerleave', 'blur'].forEach(eventName => {
+      button.addEventListener(eventName, () => button.classList.remove('pressed'));
+    });
+    button.addEventListener('click', () => {
+      if (button.disabled) return;
+      button.classList.add('click-feedback');
+      window.setTimeout(() => button.classList.remove('click-feedback', 'pressed'), 220);
+    });
+  });
+}
 function renderCountryChips(items) {
   const box = $('countryChips');
   box.innerHTML = '';
@@ -768,6 +794,7 @@ async function regions() {
 }
 
 document.querySelectorAll('.chip').forEach(bindCountryChip);
+bindButtonFeedback();
 $('previewBtn').addEventListener('click', () => run(true));
 $('addCountryBtn').addEventListener('click', addCountry);
 $('recordsList').addEventListener('change', showSelectedRecord);
